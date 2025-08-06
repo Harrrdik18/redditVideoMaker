@@ -94,13 +94,15 @@ def imagemaker(theme, reddit_obj: dict, txtclr, padding=5, transparent=False) ->
         font = ImageFont.truetype(os.path.join("fonts", "Roboto-Regular.ttf"), 100)
     size = (1920, 1080)
 
-    image = Image.new("RGBA", size, theme)
+    # Use transparent background if requested
+    bg_color = (0, 0, 0, 0) if transparent else theme
+    image = Image.new("RGBA", size, bg_color)
 
     for idx, text in track(enumerate(texts), "Rendering Image"):
-        image = Image.new("RGBA", size, theme)
+        image = Image.new("RGBA", size, bg_color)
         text = process_text(text, False)
         draw_multiple_line_text(image, text, font, txtclr, padding, wrap=30, transparent=transparent)
-        image.save(f"assets/temp/{id}/png/img{idx}.png")
+        image.save(f"assets/temp/{id}/png/comment_{idx}.png")
 
 
 
