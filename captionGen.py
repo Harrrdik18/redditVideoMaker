@@ -108,14 +108,21 @@ def create_text_image(text, size, font_size, color, font_path, bg_color=(0, 0, 0
 def create_caption_clips(word_timings, video_width, video_height, font_path):
     caption_clips = []
     font_size = 110  # Increased font size
-    y_offset = 570  # Moving subtitles higher up on the screen
+    caption_height_base = 120 # This is the 'size[1]' passed to create_text_image
+    border_size = 15 # From create_text_image
+    font_size = 110 # From create_caption_clips
+    
+    # Calculate the actual rendered height of the caption image
+    caption_rendered_height = caption_height_base + (border_size * 2) + (font_size // 2)
 
     for word in word_timings:
-        img_array = create_text_image(word['word'], (video_width, 120), font_size, (255, 255, 255, 255), font_path)
+        img_array = create_text_image(word['word'], (video_width, caption_height_base), font_size, (255, 255, 255, 255), font_path)
         clip = ImageClip(img_array, duration=word['end'] - word['start'])
         
-        # Adjusting position to move subtitles higher
-        clip = clip.set_position(('center', video_height - y_offset)).set_start(word['start'])
+        # Calculate y-position to place captions in the vertical center of the screen
+        # MoviePy's set_position uses the top-left corner of the clip for positioning.
+        y_position = (video_height / 2) - (caption_rendered_height / 2)
+        clip = clip.set_position(('center', y_position)).set_start(word['start'])
         
         caption_clips.append(clip)
     
@@ -124,7 +131,7 @@ def create_caption_clips(word_timings, video_width, video_height, font_path):
 
 
 
-def main(input_video_path, output_video_path, font_path):
+def main(input_video_path, output_video_path, font_path, comments_start_time=None, output_duration=None):
     # Download Vosk model if not present
     model_path = download_vosk_model()
 
@@ -139,6 +146,11 @@ def main(input_video_path, output_video_path, font_path):
         logging.error("No words were transcribed. Check the audio quality and format.")
         return
 
+    # Filter words to only include those after comments_start_time
+    if comments_start_time is not None:
+        word_timings = [w for w in word_timings if w['start'] >= comments_start_time]
+        logging.info(f"Filtered words to start from {comments_start_time}s, {len(word_timings)} words remain.")
+
     # Print first 10 transcribed words for debugging
     logging.info(f"First 10 transcribed words: {word_timings[:10]}")
 
@@ -148,10 +160,10 @@ def main(input_video_path, output_video_path, font_path):
     
     # Overlay captions on video
     final_video = CompositeVideoClip([video] + caption_clips)
-    
 
-
-
+    if output_duration is not None:
+        final_video = final_video.set_duration(output_duration)
+        logging.info(f"Output video duration set to {output_duration} seconds.")
 
     # Write output video
     final_video.write_videofile(output_video_path,)
@@ -164,12 +176,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Add captions to video using Vosk and MoviePy.')
     parser.add_argument('input_video', type=str, help='Path to the input video file')
     parser.add_argument('--font', type=str, default='/home/user/RedditVideoMakerBot-master/fonts/Rubik-Black.ttf', help='Path to the font file')
+    parser.add_argument('--comments_start', type=float, default=None, help='Time (in seconds) when comments start')
+    parser.add_argument('--output_duration', type=float, default=None, help='Desired duration of the output video in seconds')
     args = parser.parse_args()
 
     input_video = args.input_video
     output_video = os.path.splitext(input_video)[0] + "_out.mp4"
     font_path = args.font
-    main(input_video, output_video, font_path)
+    main(input_video, output_video, font_path, comments_start_time=args.comments_start, output_duration=args.output_duration)
 
 
 
