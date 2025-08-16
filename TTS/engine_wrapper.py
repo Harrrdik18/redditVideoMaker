@@ -71,11 +71,18 @@ class TTSEngine:
         print_step("Saving Text to MP3 files...")
 
         self.add_periods()
+        # Reset voice cache for new content piece (title)
+        if hasattr(self.tts_module, 'reset_voice_cache'):
+            self.tts_module.reset_voice_cache()
         self.call_tts("title", process_text(self.reddit_object["thread_title"]))
         # processed_text = ##self.reddit_object["thread_post"] != ""
         idx = 0
 
         if settings.config["settings"]["storymode"]:
+            # Reset voice cache for new content piece (post)
+            if hasattr(self.tts_module, 'reset_voice_cache'):
+                self.tts_module.reset_voice_cache()
+                
             if settings.config["settings"]["storymodemethod"] == 0:
                 if len(self.reddit_object["thread_post"]) > self.tts_module.max_chars:
                     self.split_post(self.reddit_object["thread_post"], "postaudio")
@@ -92,6 +99,11 @@ class TTSEngine:
                     self.length -= self.last_clip_length
                     idx -= 1
                     break
+                
+                # Reset voice cache for new content piece (comment)
+                if hasattr(self.tts_module, 'reset_voice_cache'):
+                    self.tts_module.reset_voice_cache()
+                    
                 if (
                     len(comment["comment_body"]) > self.tts_module.max_chars
                 ):  # Split the comment if it is too long
@@ -145,6 +157,10 @@ class TTSEngine:
 
         self.create_silence_mp3()
 
+        # IMPORTANT: Use the same voice for all chunks of the same content
+        # Only randomize voice ONCE per content piece, not per chunk
+        use_random_voice = settings.config["settings"]["tts"]["random_voice"]
+        
         idy = None
         for idy, text_cut in enumerate(split_text):
             newtext = process_text(text_cut)
@@ -154,7 +170,14 @@ class TTSEngine:
                 continue
             else:
                 print(f"Processing chunk {idy}: '{newtext}' (length: {len(newtext)})")
-                self.call_tts(f"{idx}-{idy}.part", newtext)
+                # For all chunks after the first, force random_voice=False to use the same voice
+                if idy == 0:
+                    # First chunk: use random voice if enabled
+                    self.call_tts(f"{idx}-{idy}.part", newtext, force_random_voice=use_random_voice)
+                else:
+                    # Subsequent chunks: force same voice (random_voice=False)
+                    self.call_tts(f"{idx}-{idy}.part", newtext, force_random_voice=False)
+                    
                 with open(f"{self.path}/list.txt", "a") as f:
                     f.write(f"file '{idx}-{idy}.part.mp3'\n")
                     f.write("file 'silence.mp3'\n")
@@ -180,11 +203,14 @@ class TTSEngine:
         print(f"Finished processing {len(split_files)} audio chunks")
 
 
-    def call_tts(self, filename: str, text: str):
+    def call_tts(self, filename: str, text: str, force_random_voice: bool = None):
+        # If force_random_voice is specified, use that. Otherwise use config setting
+        random_voice = force_random_voice if force_random_voice is not None else settings.config["settings"]["tts"]["random_voice"]
+        
         self.tts_module.run(
             text,
             filepath=f"{self.path}/{filename}.mp3",
-            random_voice=settings.config["settings"]["tts"]["random_voice"],
+            random_voice=random_voice,
         )
         # try:
         #     self.length += MP3(f"{self.path}/{filename}.mp3").info.length

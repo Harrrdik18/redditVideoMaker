@@ -29,3 +29,5 @@ google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
 pydantic==2.7.4
+google-generativeai>=0.3.0
+pydub>=0.25.1

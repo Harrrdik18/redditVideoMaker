@@ -78,9 +78,10 @@ def transcribe_audio(audio_path, model_path):
     return words
 
 
-def group_words_into_captions(word_timings, video_width, font_size, font_path, max_duration_per_caption=1.5, pause_threshold=0.3, max_text_width_ratio=0.9):
+def group_words_into_captions(word_timings, video_width, font_size, font_path, max_duration_per_caption=2.0, pause_threshold=0.25, max_text_width_ratio=0.9):
     """
-    Groups individual word timings into captions with maximum 2 words per caption,
+    Groups individual word timings into captions with maximum 3 words per caption,
+    ensuring captions fit within the screen width while maintaining natural timing.
     ensuring captions fit within the screen width while maintaining natural timing.
     """
     # Load font to measure text width
@@ -105,19 +106,25 @@ def group_words_into_captions(word_timings, video_width, font_size, font_path, m
         # Always start with the first word
         current_caption_words.append(word_timings[i])
         
-        # Try to add one more word (max 2 words total)
-        if i + 1 < len(word_timings):
-            next_word = word_timings[i + 1]
+        # Try to add more words (max 3 words total for better flow)
+        words_added = 1
+        max_words = 3
+        
+        while words_added < max_words and i + words_added < len(word_timings):
+            next_word = word_timings[i + words_added]
             
             # Check for significant pause (natural break)
             if next_word['start'] - current_caption_end > pause_threshold:
                 logging.debug(f"Breaking at word '{next_word['word']}' due to pause ({next_word['start'] - current_caption_end:.2f}s)")
+                break
             # Check duration limit
             elif (next_word['end'] - current_caption_start) > max_duration_per_caption:
                 logging.debug(f"Breaking at word '{next_word['word']}' due to duration ({(next_word['end'] - current_caption_start):.2f}s)")
+                break
             else:
-                # Create potential caption text with 2 words
-                potential_caption = " ".join([w['word'] for w in current_caption_words] + [next_word['word']])
+                # Create potential caption text with additional words
+                potential_words = current_caption_words + [next_word]
+                potential_caption = " ".join([w['word'] for w in potential_words])
                 
                 # Measure actual text width
                 try:
@@ -132,9 +139,11 @@ def group_words_into_captions(word_timings, video_width, font_size, font_path, m
                     # Text fits, so add this word
                     current_caption_words.append(next_word)
                     current_caption_end = next_word['end']
+                    words_added += 1
                     logging.debug(f"Added word '{next_word['word']}' - combined width: {text_width:.1f}")
                 else:
                     logging.debug(f"Breaking at word '{next_word['word']}' - text width {text_width:.1f} exceeds max {max_text_width:.1f}")
+                    break
         
         # Create the caption from the grouped words
         combined_text = " ".join([w['word'] for w in current_caption_words])
@@ -157,8 +166,10 @@ def group_words_into_captions(word_timings, video_width, font_size, font_path, m
         # Move index past the words just grouped
         i += len(current_caption_words)
     
-    logging.info(f"Grouped {len(word_timings)} words into {len(grouped_captions)} captions (max 2 words per caption).")
+    logging.info(f"Grouped {len(word_timings)} words into {len(grouped_captions)} captions (max 3 words per caption).")
     return grouped_captions
+
+
 
 def create_text_image(text, size, font_size, color, font_path, bg_color=(0, 0, 0, 0), border_size=8):
     # Increase the size of the image to accommodate the border
@@ -188,6 +199,8 @@ def create_text_image(text, size, font_size, color, font_path, bg_color=(0, 0, 0
 
 
 
+
+
 def create_caption_clips(word_timings, video_width, video_height, font_path):
     caption_clips = []
     font_size = 110  # Increased font size
@@ -197,19 +210,24 @@ def create_caption_clips(word_timings, video_width, video_height, font_path):
     
     # Calculate the actual rendered height of the caption image
     caption_rendered_height = caption_height_base + (border_size * 2) + (font_size // 2)
-
-    for word in word_timings:
+    
+    for i, word in enumerate(word_timings):
         img_array = create_text_image(word['word'], (video_width, caption_height_base), font_size, (255, 255, 255, 255), font_path)
-        clip = ImageClip(img_array, duration=word['end'] - word['start'])
+        
+        # Use exact word timings for caption display
+        start_time = word['start']
+        end_time = word['end']
+        
+        # Create clip with exact duration
+        clip = ImageClip(img_array, duration=end_time - start_time)
         
         # Calculate y-position to place captions in the vertical center of the screen
-        # MoviePy's set_position uses the top-left corner of the clip for positioning.
         y_position = (video_height / 2) - (caption_rendered_height / 2)
-        clip = clip.set_position(('center', y_position)).set_start(word['start'])
+        clip = clip.set_position(('center', y_position)).set_start(start_time)
         
         caption_clips.append(clip)
     
-    logging.info(f"Created {len(caption_clips)} caption clips")
+    logging.info(f"Created {len(caption_clips)} caption clips.")
     return caption_clips
 
 
@@ -244,9 +262,8 @@ def main(input_video_path, output_video_path, font_path, comments_start_time=Non
     # Pass video dimensions and font info for dynamic text fitting
     grouped_word_timings = group_words_into_captions(word_timings, video.w, 110, font_path, max_text_width_ratio=max_text_width_ratio) # 110 is font_size from create_caption_clips
 
-    # Create caption clips
-    video = VideoFileClip(input_video_path)
     caption_clips = create_caption_clips(grouped_word_timings, video.w, video.h, font_path)
+    logging.info("Created caption clips.")
     
     # Overlay captions on video
     final_video = CompositeVideoClip([video] + caption_clips)
